@@ -1,7 +1,5 @@
 import dash
-import dash_core_components as dcc
-import dash_html_components as html
-import dash_dangerously_set_inner_html
+from dash import dcc, html
 import mediapipe as mp
 import SquatPosture as sp
 from flask import Flask, Response
@@ -9,10 +7,13 @@ import cv2
 import tensorflow as tf
 import numpy as np
 from utils import landmarks_list_to_array, label_params, label_final_results
+from keras.layers import TFSMLayer
+
 mp_drawing = mp.solutions.drawing_utils
 mp_pose = mp.solutions.pose
 
-model = tf.keras.models.load_model("working_model_1")
+model = tf.keras.models.load_model("working_model_1.keras")
+
 
 class VideoCamera(object):
     def __init__(self):
@@ -118,7 +119,8 @@ app.layout = html.Div(className="main", children=[
         rel="stylesheet",
         href="/assets/stylesheet.css"
     ),
-    dash_dangerously_set_inner_html.DangerouslySetInnerHTML("""
+    dcc.Markdown(
+    children="""
         <div class="main-container">
             <table cellspacing="20px" class="table">
                 <tr class="row">
@@ -135,8 +137,11 @@ app.layout = html.Div(className="main", children=[
                 </tr>
             </table>
         </div>
-    """),
+            """,
+            dangerously_allow_html=True
+        ),
 ])
 
+
 if __name__ == '__main__':
-    app.run_server(debug=True)
+    app.run(debug=True)
