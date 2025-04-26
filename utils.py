@@ -1,5 +1,14 @@
 import cv2
 import numpy as np
+import pyttsx3
+import threading
+
+
+engine = pyttsx3.init()
+engine.setProperty('rate', 150)
+engine.setProperty('volume', 1.0)
+engine_lock = threading.Lock()
+
 
 
 def landmarks_list_to_array(landmark_list, image_shape):
@@ -67,11 +76,23 @@ def label_final_results(image, label):
         -1
     )
 
+    instruction = "   "+" + ".join(word for word in described_label)
+
+  
+    threading.Thread(target=speak, args=(instruction,)).start()
+
+
     cv2.putText(
-        image, "   "+" + ".join(word for word in described_label),
+        image, instruction,
         (0, 43),
         cv2.FONT_HERSHEY_SIMPLEX,
         0.6,
         (255, 255, 255),
         2
     )
+
+def speak(text):
+    with engine_lock:  # ¡asegura que sólo un hilo use engine a la vez!
+        engine.stop()
+        engine.say(text)
+        engine.runAndWait()
