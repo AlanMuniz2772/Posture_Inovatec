@@ -1,60 +1,69 @@
-import cv2
-import numpy as np
-import pyttsx3
-import threading
+# ============================================
+# ARCHIVO: utils.py
+# OBJETIVO: Funciones de soporte visual y auditivo para feedback de postura
+# ============================================
+
+import cv2                  # OpenCV para manipulación visual de imágenes
+import numpy as np          # NumPy para cálculos numéricos
+import pyttsx3              # pyttsx3 para síntesis de voz
+import threading            # threading para ejecutar la voz en paralelo
 
 
-engine = pyttsx3.init()
-engine.setProperty('rate', 150)
-engine.setProperty('volume', 1.0)
-engine_lock = threading.Lock()
 
-
-
+# ============================================
+# FUNCIÓN: landmarks_list_to_array
+# OBJETIVO: Convertir landmarks normalizados a coordenadas reales en pixeles
+# ============================================
 def landmarks_list_to_array(landmark_list, image_shape):
     rows, cols, _ = image_shape
 
     if landmark_list is None:
         return None
 
-    return np.asarray([(lmk.x * cols, lmk.y * rows)
-                       for lmk in landmark_list.landmark])
+    # Multiplica los puntos normalizados por el tamaño real de la imagen
+    return np.asarray([
+        (lmk.x * cols, lmk.y * rows)
+        for lmk in landmark_list.landmark
+    ])
 
-
+# ============================================
+# FUNCIÓN: label_params
+# OBJETIVO: Dibujar los valores de los 5 parámetros clave sobre el frame
+# ============================================
 def label_params(frame, params, coords):
-
     if coords is None:
         return
 
-    params = params * 180/3.14159265
+    # Convertir de radianes a grados para mostrar
+    params = params * 180 / np.pi
 
-    neck = (coords[11]+coords[12])/2
-    # print(neck)
+    # Coordenadas medias para cada parte del cuerpo donde se etiqueta el ángulo
+    neck = (coords[11] + coords[12]) / 2
     cv2.putText(frame, str(np.round(params[0], 2)), (int(neck[0]), int(neck[1]) + 5),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
     knee = (coords[25] + coords[26]) / 2
-    # print(knee)
     cv2.putText(frame, str(np.round(params[1], 2)), (int(knee[0]), int(knee[1]) - 15),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
-    hip = (coords[23]+coords[24])/2
-    # print(hip)
+    hip = (coords[23] + coords[24]) / 2
     cv2.putText(frame, str(np.round(params[2], 2)), (int(hip[0]), int(hip[1]) - 15),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
     ankle = (coords[27] + coords[28]) / 2
-    # print(ankle)
     cv2.putText(frame, str(np.round(params[3], 2)), (int(ankle[0]), int(ankle[1]) - 15),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
     y_knee = (coords[25] + coords[26]) / 2
-    # print(y_knee)
     cv2.putText(frame, str(np.round(params[4], 2)), (int(y_knee[0]), int(y_knee[1]) - 35),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
-
+# ============================================
+# FUNCIÓN: label_final_results
+# OBJETIVO: Mostrar feedback textual y verbal en la imagen final
+# ============================================
 def label_final_results(image, label):
+    # Diccionario para traducir códigos de corrección a mensajes explicativos
     expanded_labels = {
         "c": "Correct Form",
         "k": "Knee Ahead, push your butt out",
@@ -65,34 +74,21 @@ def label_final_results(image, label):
 
     image_width, image_height, _ = image.shape
 
-    label_list = [character for character in label]
+    # Separar el string de etiquetas en caracteres individuales
+    label_list = [char for char in label]
     described_label = list(map(lambda x: expanded_labels[x], label_list))
 
+    # Determinar color del rectángulo: verde si es correcto, azul si hay errores
     color = (42, 210, 48) if "c" in label_list else (13, 13, 205)
 
-    cv2.rectangle(image,
-        (0, 0), (image_height, 74),
-        color,
-        -1
-    )
+    # Dibujar una caja de fondo en la parte superior de la imagen
+    cv2.rectangle(image, (0, 0), (image_height, 74), color, -1)
 
-    instruction = "   "+" + ".join(word for word in described_label)
-
-  
-    threading.Thread(target=speak, args=(instruction,)).start()
+    # Crear el mensaje a mostrar y decir
+    instruction = "   " + " + ".join(described_label)
 
 
-    cv2.putText(
-        image, instruction,
-        (0, 43),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.6,
-        (255, 255, 255),
-        2
-    )
+    # Mostrar el texto en pantalla
+    cv2.putText(image, instruction, (0, 43),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
-def speak(text):
-    with engine_lock:  # ¡asegura que sólo un hilo use engine a la vez!
-        engine.stop()
-        engine.say(text)
-        engine.runAndWait()
