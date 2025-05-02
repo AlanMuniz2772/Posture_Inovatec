@@ -111,6 +111,6 @@ def get_frame(cap, pose, mp_pose):
             mp_drawing.DrawingSpec(color=(0,0,255), thickness=2, circle_radius=1)
         )
 
-
     frame = cv2.resize(frame, (720, 480))
-    return frame
+
+    return frame, results

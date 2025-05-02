@@ -13,15 +13,13 @@ EXERCISES = [
 
 def get_angle(v1, v2):
     dot = np.dot(v1, v2)
-    mod_v1 = np.linalg.norm(v1)
-    mod_v2 = np.linalg.norm(v2)
-    cos_theta = dot/(mod_v1*mod_v2)
-    theta = math.acos(cos_theta)
-    return theta
-
+    norm_v1 = np.linalg.norm(v1)
+    norm_v2 = np.linalg.norm(v2)
+    cos_theta = dot / (norm_v1 * norm_v2 + 1e-6)
+    return math.acos(np.clip(cos_theta, -1.0, 1.0))
 
 def get_length(v):
-    return np.dot(v, v)**0.5
+    return np.linalg.norm(v)
 
 
 def get_params(results, exercise='squats', all=False):
@@ -156,3 +154,53 @@ def get_params(results, exercise='squats', all=False):
         params = np.array([[x, y, z] for pos, (x, y, z) in points.items()]) * length_normalization_factor
 
     return np.round(params, 2)
+
+
+def calcular_parametros_desde_landmarks(landmarks: dict) -> list:
+    # Convertir landmarks a diccionario de nombres
+    def lm(name):  # Helper para abreviar
+        return np.array([landmarks[name].x, landmarks[name].y, landmarks[name].z])
+
+    points = {name: lm(name) for name in [
+        'NOSE', 'LEFT_EYE', 'RIGHT_EYE', 'MOUTH_LEFT', 'MOUTH_RIGHT',
+        'LEFT_SHOULDER', 'RIGHT_SHOULDER', 'LEFT_ELBOW', 'RIGHT_ELBOW',
+        'LEFT_WRIST', 'RIGHT_WRIST', 'LEFT_HIP', 'RIGHT_HIP',
+        'LEFT_KNEE', 'RIGHT_KNEE', 'LEFT_ANKLE', 'RIGHT_ANKLE',
+        'LEFT_HEEL', 'RIGHT_HEEL', 'LEFT_FOOT_INDEX', 'RIGHT_FOOT_INDEX'
+    ]}
+
+    points["MID_SHOULDER"] = (points["LEFT_SHOULDER"] + points["RIGHT_SHOULDER"]) / 2
+    points["MID_HIP"] = (points["LEFT_HIP"] + points["RIGHT_HIP"]) / 2
+
+    # Ángulo del cuello
+    theta_neck = get_angle(np.array([0, 0, -1]), points["NOSE"] - points["MID_HIP"])
+
+    # Ángulo rodilla
+    theta_k1 = get_angle(points["RIGHT_HIP"] - points["RIGHT_KNEE"], points["RIGHT_ANKLE"] - points["RIGHT_KNEE"])
+    theta_k2 = get_angle(points["LEFT_HIP"] - points["LEFT_KNEE"], points["LEFT_ANKLE"] - points["LEFT_KNEE"])
+    theta_k = (theta_k1 + theta_k2) / 2
+
+    # Ángulo cadera
+    theta_h1 = get_angle(points["RIGHT_KNEE"] - points["RIGHT_HIP"], points["RIGHT_SHOULDER"] - points["RIGHT_HIP"])
+    theta_h2 = get_angle(points["LEFT_KNEE"] - points["LEFT_HIP"], points["LEFT_SHOULDER"] - points["LEFT_HIP"])
+    theta_h = (theta_h1 + theta_h2) / 2
+
+    # Normalización por tibia
+    tibula_R = get_length(points["RIGHT_KNEE"] - points["RIGHT_HEEL"])
+    tibula_L = get_length(points["LEFT_KNEE"] - points["LEFT_HEEL"])
+    tibula_avg = (tibula_R + tibula_L) / 2
+    norm_factor = (1 / tibula_avg) ** 0.5
+
+    # Z: profundidad relativa del pie
+    z1 = (points["RIGHT_ANKLE"][2] + points["RIGHT_HEEL"][2]) / 2 - points["RIGHT_FOOT_INDEX"][2]
+    z2 = (points["LEFT_ANKLE"][2] + points["LEFT_HEEL"][2]) / 2 - points["LEFT_FOOT_INDEX"][2]
+    z = (z1 + z2) / 2 * norm_factor
+
+    # KY: altura de rodillas sobre el suelo
+    y_knee_L = points["LEFT_KNEE"][1] - np.mean([points["LEFT_ANKLE"][1], points["LEFT_HEEL"][1], points["LEFT_FOOT_INDEX"][1]])
+    y_knee_R = points["RIGHT_KNEE"][1] - np.mean([points["RIGHT_ANKLE"][1], points["RIGHT_HEEL"][1], points["RIGHT_FOOT_INDEX"][1]])
+    ky = (y_knee_L + y_knee_R) / 2 * norm_factor
+
+    radianes = [theta_neck, theta_k, theta_h]
+    grados = [x * 180 / math.pi for x in radianes]
+    return np.round(grados + [z, ky], 3)
