@@ -5,9 +5,9 @@
 
 import cv2                  # OpenCV para manipulación visual de imágenes
 import numpy as np          # NumPy para cálculos numéricos
-import pyttsx3              # pyttsx3 para síntesis de voz
-import threading            # threading para ejecutar la voz en paralelo
+import mediapipe as mp
 
+mp_drawing = mp.solutions.drawing_utils
 
 
 # ============================================
@@ -92,3 +92,25 @@ def label_final_results(image, label):
     cv2.putText(image, instruction, (0, 43),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
+def get_frame(cap, pose, mp_pose):
+    ret, frame = cap.read()
+    if not ret:
+        return None
+
+    # Convertir a RGB y procesar con MediaPipe
+    image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    results = pose.process(image_rgb)
+
+    # Dibujar landmarks sobre el frame si se detectan
+    if results.pose_landmarks:
+        mp_drawing.draw_landmarks(
+            frame,
+            results.pose_landmarks,
+            mp_pose.POSE_CONNECTIONS,
+            mp_drawing.DrawingSpec(color=(0,255,0), thickness=2, circle_radius=2),
+            mp_drawing.DrawingSpec(color=(0,0,255), thickness=2, circle_radius=1)
+        )
+
+
+    frame = cv2.resize(frame, (720, 480))
+    return frame
