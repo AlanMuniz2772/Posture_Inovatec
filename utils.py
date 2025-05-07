@@ -30,33 +30,40 @@ def landmarks_list_to_array(landmark_list, image_shape):
 # FUNCIÓN: label_params
 # OBJETIVO: Dibujar los valores de los 5 parámetros clave sobre el frame
 # ============================================
+
+
 def label_params(frame, params, coords):
-    if coords is None:
+    if coords is None or params is None:
         return
 
-    # Convertir de radianes a grados para mostrar
-    params = params * 180 / np.pi
+    # Coordenadas de referencia: 
+    # params[0] = theta_neck, [1] = theta_k, [2] = theta_h, [3] = z, [4] = ky
 
-    # Coordenadas medias para cada parte del cuerpo donde se etiqueta el ángulo
+    # θ_neck → texto entre hombros
     neck = (coords[11] + coords[12]) / 2
-    cv2.putText(frame, str(np.round(params[0], 2)), (int(neck[0]), int(neck[1]) + 5),
+    cv2.putText(frame, f"Neck: {params[0]:.2f}", (int(neck[0]), int(neck[1]) + 5),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
+    # θ_k (rodilla)
     knee = (coords[25] + coords[26]) / 2
-    cv2.putText(frame, str(np.round(params[1], 2)), (int(knee[0]), int(knee[1]) - 15),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+    cv2.putText(frame, f"K: {params[1]:.2f}", (int(knee[0]), int(knee[1]) - 15),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 2)
 
+    # θ_h (cadera)
     hip = (coords[23] + coords[24]) / 2
-    cv2.putText(frame, str(np.round(params[2], 2)), (int(hip[0]), int(hip[1]) - 15),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+    cv2.putText(frame, f"H: {params[2]:.2f}", (int(hip[0]), int(hip[1]) - 15),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 255), 2)
 
+    # Z (profundidad de pie)
     ankle = (coords[27] + coords[28]) / 2
-    cv2.putText(frame, str(np.round(params[3], 2)), (int(ankle[0]), int(ankle[1]) - 15),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+    cv2.putText(frame, f"Z: {params[3]:.3f}", (int(ankle[0]), int(ankle[1]) - 15),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 165, 255), 2)
 
+    # KY (altura rodilla)
     y_knee = (coords[25] + coords[26]) / 2
-    cv2.putText(frame, str(np.round(params[4], 2)), (int(y_knee[0]), int(y_knee[1]) - 35),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+    cv2.putText(frame, f"ky: {params[4]:.3f}", (int(y_knee[0]), int(y_knee[1]) - 35),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+
 
 # ============================================
 # FUNCIÓN: label_final_results
@@ -65,11 +72,12 @@ def label_params(frame, params, coords):
 def label_final_results(image, label):
     # Diccionario para traducir códigos de corrección a mensajes explicativos
     expanded_labels = {
-        "c": "Correct Form",
-        "k": "Knee Ahead, push your butt out",
-        "h": "Back Wrongly Positioned, keep your chest up",
-        "r": "Back Wrongly Positioned, keep your chest up",
-        "x": "Correct Depth"
+    "c": "Correct Form",
+    "k": "Knee Ahead, push your butt out",
+    "h": "Back Wrongly Positioned, keep your chest up",
+    "r": "Neck Misaligned, keep your neck neutral",
+    "x": "Correct Depth",
+    "i": "Foot instability detected"
     }
 
     image_width, image_height, _ = image.shape
@@ -95,22 +103,26 @@ def label_final_results(image, label):
 def get_frame(cap, pose, mp_pose):
     ret, frame = cap.read()
     if not ret:
-        return None
+        return None, None
 
     # Convertir a RGB y procesar con MediaPipe
-    image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    results = pose.process(image_rgb)
-
+    image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    image.flags.writeable = False
+    results = pose.process(image)
+    
+    image.flags.writeable = True
+    image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+    
     # Dibujar landmarks sobre el frame si se detectan
     if results.pose_landmarks:
         mp_drawing.draw_landmarks(
-            frame,
+            image,
             results.pose_landmarks,
             mp_pose.POSE_CONNECTIONS,
-            mp_drawing.DrawingSpec(color=(0,255,0), thickness=2, circle_radius=2),
-            mp_drawing.DrawingSpec(color=(0,0,255), thickness=2, circle_radius=1)
         )
 
-    frame = cv2.resize(frame, (720, 480))
+    # frame = cv2.resize(frame, (720, 480))
+    
+    return image, results
 
-    return frame, results
+

@@ -11,12 +11,16 @@ EXERCISES = [
     'planks',
 ]
 
+def radian_to_degrees(radian):
+    return radian * 180 / math.pi
+
 def get_angle(v1, v2):
     dot = np.dot(v1, v2)
-    norm_v1 = np.linalg.norm(v1)
-    norm_v2 = np.linalg.norm(v2)
-    cos_theta = dot / (norm_v1 * norm_v2 + 1e-6)
-    return math.acos(np.clip(cos_theta, -1.0, 1.0))
+    mod_v1 = np.linalg.norm(v1)
+    mod_v2 = np.linalg.norm(v2)
+    cos_theta = dot/(mod_v1*mod_v2)
+    theta = math.acos(cos_theta)
+    return theta
 
 def get_length(v):
     return np.linalg.norm(v)
@@ -156,24 +160,29 @@ def get_params(results, exercise='squats', all=False):
     return np.round(params, 2)
 
 
-def calcular_parametros_desde_landmarks(landmarks: dict) -> list:
-    # Convertir landmarks a diccionario de nombres
-    def lm(name):  # Helper para abreviar
-        return np.array([landmarks[name].x, landmarks[name].y, landmarks[name].z])
+def calcular_parametros_desde_resultados(results):
+    if not results.pose_landmarks or not hasattr(results.pose_landmarks, 'landmark'):
+        # Retorna vector neutral si no hay detección
+        return np.zeros(5)
 
-    points = {name: lm(name) for name in [
-        'NOSE', 'LEFT_EYE', 'RIGHT_EYE', 'MOUTH_LEFT', 'MOUTH_RIGHT',
-        'LEFT_SHOULDER', 'RIGHT_SHOULDER', 'LEFT_ELBOW', 'RIGHT_ELBOW',
-        'LEFT_WRIST', 'RIGHT_WRIST', 'LEFT_HIP', 'RIGHT_HIP',
-        'LEFT_KNEE', 'RIGHT_KNEE', 'LEFT_ANKLE', 'RIGHT_ANKLE',
-        'LEFT_HEEL', 'RIGHT_HEEL', 'LEFT_FOOT_INDEX', 'RIGHT_FOOT_INDEX'
-    ]}
+    # Extraer landmarks como diccionario con nombres
+    landmark_list = results.pose_landmarks.landmark
+    points = {
+        lm.name: np.array([landmark_list[lm.value].x,
+                           landmark_list[lm.value].y,
+                           landmark_list[lm.value].z])
+        for lm in mp.solutions.pose.PoseLandmark
+    }
+
+
+    # Puntos medios
 
     points["MID_SHOULDER"] = (points["LEFT_SHOULDER"] + points["RIGHT_SHOULDER"]) / 2
     points["MID_HIP"] = (points["LEFT_HIP"] + points["RIGHT_HIP"]) / 2
 
-    # Ángulo del cuello
-    theta_neck = get_angle(np.array([0, 0, -1]), points["NOSE"] - points["MID_HIP"])
+    # Ángulo del cuello (usando nariz - cadera)
+    v_torso = points["MID_SHOULDER"]- points["MID_HIP"]
+    theta_neck = get_angle(np.array([0, -1, 0]), v_torso)
 
     # Ángulo rodilla
     theta_k1 = get_angle(points["RIGHT_HIP"] - points["RIGHT_KNEE"], points["RIGHT_ANKLE"] - points["RIGHT_KNEE"])
@@ -197,10 +206,48 @@ def calcular_parametros_desde_landmarks(landmarks: dict) -> list:
     z = (z1 + z2) / 2 * norm_factor
 
     # KY: altura de rodillas sobre el suelo
-    y_knee_L = points["LEFT_KNEE"][1] - np.mean([points["LEFT_ANKLE"][1], points["LEFT_HEEL"][1], points["LEFT_FOOT_INDEX"][1]])
-    y_knee_R = points["RIGHT_KNEE"][1] - np.mean([points["RIGHT_ANKLE"][1], points["RIGHT_HEEL"][1], points["RIGHT_FOOT_INDEX"][1]])
-    ky = (y_knee_L + y_knee_R) / 2 * norm_factor
+    y_knee_L = np.mean([points["LEFT_ANKLE"][1], points["LEFT_HEEL"][1], points["LEFT_FOOT_INDEX"][1]]) - points["LEFT_KNEE"][1]
+    y_knee_R = np.mean([points["RIGHT_ANKLE"][1], points["RIGHT_HEEL"][1], points["RIGHT_FOOT_INDEX"][1]]) - points["RIGHT_KNEE"][1]
 
-    radianes = [theta_neck, theta_k, theta_h]
-    grados = [x * 180 / math.pi for x in radianes]
-    return np.round(grados + [z, ky], 3)
+    ky = (y_knee_L + y_knee_R) / 2 * norm_factor
+    
+    params = np.array([theta_neck, theta_k, theta_h, z, ky])
+    # Convertir a grados los ángulos y devolver
+    return np.round(params, 2)
+
+
+
+
+def auto_label(params):
+    theta_neck, theta_k, theta_h, z, ky = params
+    labels = []
+
+    # Convertir ángulos de radianes a grados
+    theta_neck_deg = math.degrees(theta_neck)
+    theta_k_deg = math.degrees(theta_k)
+    theta_h_deg = math.degrees(theta_h)
+
+    # Reglas de detección de errores biomecánicos
+    if theta_k_deg < 90:
+        labels.append("k")  # Rodilla muy doblada
+
+    if theta_h_deg < 60:
+        labels.append("h")  # Torso inclinado hacia adelante
+
+    if theta_neck_deg > 35:
+        labels.append("r")  # Cuello desalineado
+
+    if 0.15 <= ky <= 0.35:
+        labels.append("x")  # Profundidad adecuada
+
+    if z > 0.03:
+        labels.append("i")  # Movimiento extraño en el pie
+
+    # Si no hay ningún error, se considera correcto
+    if len(labels) == 0:
+        labels.append("c")
+
+    return labels
+
+# if __name__ == "__main__":
+#     print(radian_to_degrees(3))

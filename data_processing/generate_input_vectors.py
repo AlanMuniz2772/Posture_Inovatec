@@ -5,11 +5,16 @@
 # ============================
 
 import cv2                              # Para procesamiento de video
-import mediapipe as mp                 # Para detección de poses humanas
-import Posture.SquatPosture as sp      # Módulo personalizado con funciones específicas para sentadillas
+import mediapipe as mp                 # Para detección de poses humanas   # Módulo personalizado con funciones específicas para sentadillas
 import numpy as np
 import os
-from Posture.utils import *            # Funciones auxiliares para graficar y procesar landmarks
+import sys
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+import utils as utils
+import SquatPosture as sp
+           
 
 # Inicialización de utilidades de MediaPipe
 mp_drawing = mp.solutions.drawing_utils
@@ -18,25 +23,27 @@ mp_pose = mp.solutions.pose
 # ========== BLOQUE PRINCIPAL ==========
 if __name__ == '__main__':
     # Ruta donde están los videos ya procesados
-    directory = './data/processed'
+    VIDEO_DIR = './videos_recortados'
 
-    # Obtener y ordenar los nombres de los archivos de video
-    video_names = sorted(os.listdir(directory))
 
     # Abrir el archivo de salida donde se guardarán los vectores
-    file = open("./data/input_vectors.csv", "w")
+    file = open("./input_vectors_deadlift.csv", "w")
+    
+    video_files = [f for f in os.listdir(VIDEO_DIR) if f.endswith(".mp4")]
 
-    # Procesar cada video en la carpeta
-    for video_name in video_names:
-        # Cargar video
-        cap = cv2.VideoCapture(os.path.join(directory, video_name))
-        frame_number = 0  # Contador de frames
-
-        # Iniciar el modelo de detección de pose con MediaPipe
-        with mp_pose.Pose(
+    with mp_pose.Pose(static_image_mode=False,
+            model_complexity=2,
             min_detection_confidence=0.5,
             min_tracking_confidence=0.5
         ) as pose:
+        # Procesar cada video en la carpeta
+        for index,  video_name in enumerate(video_files):
+            # Cargar video
+            cap = cv2.VideoCapture(os.path.join(VIDEO_DIR, video_name))
+            frame_number = 0  # Contador de frames
+
+            # Iniciar el modelo de detección de pose con MediaPipe
+            
             while cap.isOpened():
                 success, image = cap.read()
                 if not success:
@@ -48,30 +55,14 @@ if __name__ == '__main__':
                 image.flags.writeable = False
                 results = pose.process(image)  # Detección de pose
 
-                # Habilitar escritura nuevamente y regresar imagen a BGR
-                image.flags.writeable = True
-                image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
-
-                # Obtener alto y ancho de la imagen
-                image_height, image_width, _ = image.shape
 
                 # Obtener los parámetros relevantes usando función personalizada
-                params = sp.get_params(results)
+                params = sp.calcular_parametros_desde_resultados(results)
 
-                # Dibujar los landmarks detectados sobre la imagen
-                mp_drawing.draw_landmarks(
-                    image, results.pose_landmarks, mp_pose.POSE_CONNECTIONS
-                )
-
-                # Convertir los landmarks a coordenadas absolutas
-                coords = landmarks_list_to_array(results.pose_landmarks, image.shape)
-
-                # Etiquetar visualmente los parámetros sobre la imagen
-                label_params(image, params, coords)
 
                 # Escribir datos al archivo CSV (nombre del video, frame y 5 parámetros)
                 file.write("{},{},{},{},{},{},{}\n".format(
-                    video_name[0:3],               # ID del video (primeros 3 caracteres)
+                    video_name,               # ID del video (primeros 3 caracteres)
                     frame_number + 1,              # Número de frame (desde 1)
                     params[0], params[1], params[2],
                     params[3], params[4]
@@ -80,17 +71,12 @@ if __name__ == '__main__':
 
                 frame_number += 1
 
-                # Mostrar imagen procesada con pose
-                cv2.imshow('MediaPipe Pose', image)
 
-                # Salir si se presiona la tecla ESC (código ASCII 27)
-                if cv2.waitKey(5) & 0xFF == 27:
-                    break
 
-        # Liberar recursos del video al terminar
-        cap.release()
-        print(video_name)  # Imprimir nombre del video procesado
+            # Liberar recursos del video al terminar
+            cap.release()
+            print(index, video_name)  # Imprimir nombre del video procesado
 
     # Cerrar archivo CSV y destruir ventanas de OpenCV
     file.close()
-    cv2.destroyAllWindows()
+
