@@ -2,9 +2,33 @@ import cv2
 import mediapipe as mp
 import math
 import numpy as np
+import utils
+import pyttsx3
+import threading
+import time
+
+engine = pyttsx3.init()
+engine.setProperty('rate', 150)
+engine.setProperty('volume', 1.0)
+voices = engine.getProperty('voices')
+engine.setProperty('voice', voices[0].id)
+
+def hablar_async(texto):
+    threading.Thread(target=hablar, args=(texto,), daemon=True).start()
+
+def hablar(texto):
+    if not engine._inLoop:
+        engine.say(texto)
+        engine.runAndWait()
 
 mp_pose = mp.solutions.pose
 mp_drawing = mp.solutions.drawing_utils
+
+LANDMARKS_NECESARIOS = [
+    "LEFT_SHOULDER", "RIGHT_SHOULDER", "LEFT_ANKLE", "RIGHT_ANKLE",
+    "LEFT_WRIST", "RIGHT_WRIST", "LEFT_KNEE", "RIGHT_KNEE",
+    "LEFT_HIP", "RIGHT_HIP"
+]
 
 EXERCISES = [
     'squats',
@@ -160,20 +184,10 @@ def get_params(results, exercise='squats', all=False):
     return np.round(params, 2)
 
 
-def calcular_parametros_desde_resultados(results):
-    if not results.pose_landmarks or not hasattr(results.pose_landmarks, 'landmark'):
+def calcular_parametros_desde_resultados(points):
+    if not points:
         # Retorna vector neutral si no hay detección
         return np.zeros(5)
-
-    # Extraer landmarks como diccionario con nombres
-    landmark_list = results.pose_landmarks.landmark
-    points = {
-        lm.name: np.array([landmark_list[lm.value].x,
-                           landmark_list[lm.value].y,
-                           landmark_list[lm.value].z])
-        for lm in mp.solutions.pose.PoseLandmark
-    }
-
 
     # Puntos medios
 
@@ -216,38 +230,226 @@ def calcular_parametros_desde_resultados(results):
     return np.round(params, 2)
 
 
+def calcular_deadlift(points):
+    if not points or all(p is None for p in points.values()):
+        return None
+    
+    return {
+        "pies_a_la_anchura_de_hombros": pies_a_la_anchura_de_hombros(points),
+        "agarre_amplio": agarre_amplio_manos_fuera_de_las_piernas(points),
+        "espalda_neutral": espalda_en_posicion_neutral(points),
+        "hombros_sobre_barra": hombros_sobre_la_barra(points)
+    }
+    
+    
+
+
+
+def pies_a_la_anchura_de_hombros(points, tolerancia=0.3):
+    """
+    Evalúa si los tobillos están separados aproximadamente al mismo ancho que los hombros.
+
+    Parámetros:
+    - points: dict con los puntos clave nombrados, como {'LEFT_ANKLE': np.array([x, y, z]), ...}
+    - tolerancia: porcentaje de tolerancia aceptable (por ejemplo, 0.2 = ±20%)
+
+    Retorna:
+    - True si la distancia de los tobillos es similar a la de los hombros
+    - False si no
+    - None si falta algún punto
+    """
+    claves = ['LEFT_SHOULDER', 'RIGHT_SHOULDER', 'LEFT_ANKLE', 'RIGHT_ANKLE']
+    if any(points.get(k) is None for k in claves):
+        return None  # No se puede evaluar
+
+    
+    def distancia_x(p1, p2):
+        return abs(p1[0] - p2[0])
+
+    ancho_hombros = distancia_x(points['LEFT_SHOULDER'], points['RIGHT_SHOULDER'])
+    ancho_pies = distancia_x(points['LEFT_ANKLE'], points['RIGHT_ANKLE'])
+
+    margen = ancho_hombros * tolerancia
+    return (ancho_hombros - margen) <= ancho_pies <= (ancho_hombros + margen)
+
+
+def agarre_amplio_manos_fuera_de_las_piernas(points, margen_extra=0.02):
+    """
+    Evalúa si el agarre es amplio, es decir, si las manos (muñecas) están fuera del ancho de las rodillas.
+    
+    Parámetros:
+    - points: dict con los landmarks nombrados (np.array o None)
+    - margen_extra: cantidad mínima adicional que las muñecas deben exceder sobre las rodillas (en proporción)
+
+    Retorna:
+    - True si el agarre es amplio
+    - False si no lo es
+    - None si faltan puntos clave
+    """
+    claves = ['LEFT_WRIST', 'RIGHT_WRIST', 'LEFT_KNEE', 'RIGHT_KNEE']
+    if any(points.get(k) is None for k in claves):
+        return None
+
+    def distancia_x(p1, p2):
+        return abs(p1[0] - p2[0])
+
+    ancho_rodillas = distancia_x(points['LEFT_KNEE'], points['RIGHT_KNEE'])
+    ancho_manos = distancia_x(points['LEFT_WRIST'], points['RIGHT_WRIST'])
+
+    return ancho_manos >= (ancho_rodillas + margen_extra)
+
+
+
+
+def espalda_en_posicion_neutral(points, tolerancia_grados=50):
+    """
+    Evalúa si la espalda está en una posición neutral observando la inclinación del tronco
+    desde el hombro a la cadera en ambos lados del cuerpo.
+    
+    Parámetros:
+    - points: dict con los landmarks nombrados (np.array o None)
+    - tolerancia_grados: margen angular permitido con respecto a la vertical
+
+    Retorna:
+    - True si ambos lados del tronco están dentro del rango de neutralidad
+    - False si la inclinación es excesiva
+    - None si faltan puntos clave
+    """
+    claves = ['LEFT_SHOULDER', 'RIGHT_SHOULDER', 'LEFT_HIP', 'RIGHT_HIP']
+    if any(points.get(k) is None for k in claves):
+        return None
+
+    def angulo_con_vertical(p1, p2):
+        vector = p2 - p1  # de hombro a cadera
+        vertical = np.array([0, 1, 0])  # eje Y
+        cos_theta = np.dot(vector[:2], vertical[:2]) / (np.linalg.norm(vector[:2]) * np.linalg.norm(vertical[:2]))
+        cos_theta = np.clip(cos_theta, -1.0, 1.0)  # estabilidad numérica
+        angulo = np.degrees(np.arccos(cos_theta))
+        return angulo
+
+    angulo_izq = angulo_con_vertical(points['LEFT_SHOULDER'], points['LEFT_HIP'])
+    angulo_der = angulo_con_vertical(points['RIGHT_SHOULDER'], points['RIGHT_HIP'])
+
+    angulo_promedio = (angulo_izq + angulo_der) / 2
+
+    return abs(angulo_promedio) <= tolerancia_grados
+
+
+
+def hombros_sobre_la_barra(points, tolerancia_x=0.05):
+    """
+    Evalúa si los hombros están aproximadamente sobre las muñecas (la barra) en vista lateral.
+    
+    Parámetros:
+    - points: dict con np.array o None
+    - tolerancia_x: rango aceptable de diferencia horizontal (X)
+
+    Retorna:
+    - True si ambos hombros están sobre la barra
+    - False si no lo están
+    - None si faltan puntos clave
+    """
+    claves = ['LEFT_SHOULDER', 'RIGHT_SHOULDER', 'LEFT_WRIST', 'RIGHT_WRIST']
+    if any(points.get(k) is None for k in claves):
+        return None
+
+    def alineacion_horizontal(hombro, muñeca):
+        diferencia = abs(hombro[0] - muñeca[0])
+        return diferencia <= tolerancia_x
+
+    izq = alineacion_horizontal(points['LEFT_SHOULDER'], points['LEFT_WRIST'])
+    der = alineacion_horizontal(points['RIGHT_SHOULDER'], points['RIGHT_WRIST'])
+
+    return izq and der
 
 
 def auto_label(params):
     theta_neck, theta_k, theta_h, z, ky = params
     labels = []
-
-    # Convertir ángulos de radianes a grados
+    
+    # Convertir a grados
     theta_neck_deg = math.degrees(theta_neck)
     theta_k_deg = math.degrees(theta_k)
     theta_h_deg = math.degrees(theta_h)
 
-    # Reglas de detección de errores biomecánicos
-    if theta_k_deg < 90:
-        labels.append("k")  # Rodilla muy doblada
+    # Reglas relajadas
+    if theta_k_deg < 80:
+        labels.append("k")
 
-    if theta_h_deg < 60:
-        labels.append("h")  # Torso inclinado hacia adelante
+    if theta_h_deg < 50:
+        labels.append("h")
 
-    if theta_neck_deg > 35:
-        labels.append("r")  # Cuello desalineado
+    if theta_neck_deg > 45:
+        labels.append("r")
 
     if 0.15 <= ky <= 0.35:
-        labels.append("x")  # Profundidad adecuada
+        labels.append("x")
 
-    if z > 0.03:
-        labels.append("i")  # Movimiento extraño en el pie
+    if z > 0.2:
+        labels.append("i")
 
-    # Si no hay ningún error, se considera correcto
-    if len(labels) == 0:
+    if not labels or labels == ["x"]:
         labels.append("c")
 
+
     return labels
+
+
+def obtener_vector_para_modelo(results, threshold=0.5):
+    """
+    Devuelve un vector plano de 30 valores (10 landmarks x 3 coords),
+    usando -1.0 como valor para landmarks con visibilidad baja o ausentes.
+    """
+    if results is None:
+        # return np.array([-1.0] * 30)  # Todos los landmarks faltantes
+        return None
+
+    landmark_list = results.pose_landmarks.landmark
+    landmark_enum = mp.solutions.pose.PoseLandmark
+
+    vector = []
+    for nombre in LANDMARKS_NECESARIOS:
+        idx = landmark_enum[nombre].value
+        punto = landmark_list[idx]
+
+        if punto.visibility < threshold:
+            # vector.extend([-1.0, -1.0, -1.0])
+            return None  # Landmark no visible
+        else:
+            vector.extend([punto.x, punto.y, punto.z])
+
+    return np.array(vector)
+
+
+def show_prediction(cap, pose, model):
+    mensaje = None
+    
+    while cap.isOpened():
+        image, results = utils.get_frame(cap, pose, mp_pose)
+
+        if image is None or image.shape[0] == 0 or image.shape[1] == 0:
+            print("⚠️ Frame inválido. Se omite.")
+            break
+
+        nuevo_mensaje = None
+        
+
+        if results and results.pose_landmarks:
+            landmarks = obtener_vector_para_modelo(results)
+            if landmarks is not None:
+                output = model.predict(np.array([landmarks]))[0]
+                image, nuevo_mensaje = utils.label_final_results(image, output)
+            else:
+                nuevo_mensaje = "No se detectaron landmarks suficientes"
+
+            if nuevo_mensaje is not None and nuevo_mensaje != mensaje:
+                hablar_async(nuevo_mensaje)
+                mensaje = nuevo_mensaje
+                
+        cv2.imshow("Landmarks", image)
+
+        if cv2.waitKey(30) & 0xFF == ord('q'):
+            break
 
 # if __name__ == "__main__":
 #     print(radian_to_degrees(3))

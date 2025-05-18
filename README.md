@@ -14,3 +14,9 @@ To run the app, first run pip install -r requirements.txt and then run app_squat
 # Our model
 
 With no available dataset online, we took it upon ourselves to generate data. After collecting hours of labelled videos of people performing Squats in a multitude of correct and incorrect ways, we used each frame of video (at 12fps) as a labeled training example - which got us a training set size of tens of thousands. 
+
+
+Commands:
+py -m venv env
+env\Scripts\activate
+pip install -r requirements.txt

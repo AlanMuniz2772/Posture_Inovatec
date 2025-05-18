@@ -6,6 +6,7 @@
 import cv2                  # OpenCV para manipulación visual de imágenes
 import numpy as np          # NumPy para cálculos numéricos
 import mediapipe as mp
+import time
 
 mp_drawing = mp.solutions.drawing_utils
 
@@ -69,36 +70,47 @@ def label_params(frame, params, coords):
 # FUNCIÓN: label_final_results
 # OBJETIVO: Mostrar feedback textual y verbal en la imagen final
 # ============================================
-def label_final_results(image, label):
-    # Diccionario para traducir códigos de corrección a mensajes explicativos
-    expanded_labels = {
-    "c": "Correct Form",
-    "k": "Knee Ahead, push your butt out",
-    "h": "Back Wrongly Positioned, keep your chest up",
-    "r": "Neck Misaligned, keep your neck neutral",
-    "x": "Correct Depth",
-    "i": "Foot instability detected"
-    }
 
-    image_width, image_height, _ = image.shape
+# === FUNCION PARA ETIQUETAR RESULTADOS ===
+def label_final_results(image, output, threshold=0.5):
 
-    # Separar el string de etiquetas en caracteres individuales
-    label_list = [char for char in label]
-    described_label = list(map(lambda x: expanded_labels[x], label_list))
+    mensajes = ("Alinea tus pies a la anchura de hombros",
+               "Las manos deben esatr ams anchas que las piernas", 
+               "Inclina menos tu espalda",
+               "Alinea hombros con muñecas")
 
-    # Determinar color del rectángulo: verde si es correcto, azul si hay errores
-    color = (42, 210, 48) if "c" in label_list else (13, 13, 205)
+    index = 0
+    biggest = 0
 
-    # Dibujar una caja de fondo en la parte superior de la imagen
+    output[0] *= 0.75
+    output[2] *= 10
+    output[3] *= 0.6
+    
+    
+    for i, r  in enumerate(output):  
+        if r > biggest:
+            biggest = r
+            index = i
+
+    mensaje = "Todo bien"
+
+    if biggest > threshold:
+        mensaje = mensajes[index]
+        color = (13, 13, 205)
+        # if index == 3:
+        #     print("hombros-muñecas", output[index])
+        #     time.sleep(1)
+    else:
+        color = (42, 210, 48)
+
+
+    image_height, _, _ = image.shape
     cv2.rectangle(image, (0, 0), (image_height, 74), color, -1)
+    cv2.putText(image, mensaje, (10, 43), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
-    # Crear el mensaje a mostrar y decir
-    instruction = "   " + " + ".join(described_label)
+    return image, mensaje
 
 
-    # Mostrar el texto en pantalla
-    cv2.putText(image, instruction, (0, 43),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
 def get_frame(cap, pose, mp_pose):
     ret, frame = cap.read()
@@ -121,8 +133,24 @@ def get_frame(cap, pose, mp_pose):
             mp_pose.POSE_CONNECTIONS,
         )
 
-    # frame = cv2.resize(frame, (720, 480))
+    image = cv2.resize(image, (720, 480))
     
     return image, results
 
 
+def get_points(results):
+    landmark_list = results.pose_landmarks.landmark
+
+    # Diccionario nombrado de landmarks con filtro de visibilidad
+    points = {
+        lm.name: (
+            np.array([
+                landmark_list[lm.value].x,
+                landmark_list[lm.value].y,
+                landmark_list[lm.value].z
+            ]) if landmark_list[lm.value].visibility >= 0.5 else None  # <-- sin np.array(None)
+        )
+        for lm in mp.solutions.pose.PoseLandmark
+    }
+
+    return points

@@ -1,70 +1,69 @@
 import cv2
 import mediapipe as mp
-import os
 import json
-import sys
+import os
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+# Configuración
+VIDEO_FOLDER = "./videos_recortados"
+OUTPUT_FILE = "./input_vectors_2.jsonl"
 
-import utils as utils
 
-# Rutas
-VIDEO_DIR = "./videos_recortados"
-OUTPUT_JSON = "./data/input_vectors.json"
-
-# Inicializar MediaPipe Pose
 mp_pose = mp.solutions.pose
-pose = mp_pose.Pose(static_image_mode=False, model_complexity=2,
-                    min_detection_confidence=0.5, min_tracking_confidence=0.5)
 
-# Resultado final
-output_data = []
+pose = mp_pose.Pose(static_image_mode=False,
+                  model_complexity=2,
+                  min_detection_confidence=0.5,
+                  min_tracking_confidence=0.5)
 
-def save_json():
-    # Guardar en JSON
-    os.makedirs(os.path.dirname(OUTPUT_JSON), exist_ok=True)
-    with open(OUTPUT_JSON, "w") as f:
-        json.dump(output_data, f, indent=2)
+landmark_enum = mp_pose.PoseLandmark
 
-    print(f"✅ input_vectors.json generado con {len(output_data)} frames.")
-
-try:
-    # Procesar cada video
-    for video_file in os.listdir(VIDEO_DIR):
-        if not video_file.endswith(".mp4"):
+with open(OUTPUT_FILE, "w") as fout:
+    for index, filename in enumerate(os.listdir(VIDEO_FOLDER)):
+        if not filename.endswith(".mp4"):
             continue
 
-        print(f"📽️ Procesando: {video_file}")
-        cap = cv2.VideoCapture(os.path.join(VIDEO_DIR, video_file))
-        frame_num = 0
+        video_path = os.path.join(VIDEO_FOLDER, filename)
+        cap = cv2.VideoCapture(video_path)
+        frame_count = 0
+
+        print(f"🎥 Procesando {index} - {filename}...")
 
         while cap.isOpened():
-            image, results = utils.get_frame(cap, pose, mp_pose)
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            # Procesar frame con MediaPipe
+            image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            image.flags.writeable = False
+            results = pose.process(image)
 
             if results.pose_landmarks:
-                # Extraer los 99 valores (x, y, z de cada punto)
-                landmarks = [
-                    coord
-                    for lm in results.pose_landmarks.landmark
-                    for coord in (lm.x, lm.y, lm.z)
-                ]
+                landmarks = results.pose_landmarks.landmark
 
-                output_data.append({
-                    "video": video_file,
-                    "frame": frame_num,
-                    "landmarks": landmarks
-                })
+                # Diccionario nombrado de landmarks con filtro de visibilidad
+                named_landmarks = {
+                    lm.name: (
+                        [
+                            round(landmarks[lm.value].x, 5),
+                            round(landmarks[lm.value].y, 5),
+                            round(landmarks[lm.value].z, 5)
+                        ] if landmarks[lm.value].visibility >= 0.5 else None
+                    )
+                    for lm in landmark_enum
+                }
 
-            frame_num += 1
-            cv2.imshow("Landmarks", image)
+                # Guardar entrada como línea JSON
+                data = {
+                    "index":index,
+                    "video": filename,
+                    "frame": frame_count,
+                    "landmarks": named_landmarks
+                }
+                fout.write(json.dumps(data) + "\n")
+
+            frame_count += 1
+
         cap.release()
-        save_json()
-except Exception as e:
-    print(e)
-    save_json()
-    print(f"❌ Error procesando el video: {video_file}")
 
-
-save_json()
-
-print(f"✅ input_vectors.json generado con {len(output_data)} frames.")
+print("✅ input_vectors_2.jsonl generado correctamente.")
