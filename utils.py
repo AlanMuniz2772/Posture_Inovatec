@@ -75,16 +75,17 @@ def label_params(frame, params, coords):
 def label_final_results(image, output, threshold=0.5):
 
     mensajes = ("Alinea tus pies a la anchura de hombros",
-               "Las manos deben esatr ams anchas que las piernas", 
-               "Inclina menos tu espalda",
-               "Alinea hombros con muñecas")
+               "Las manos deben estar mas anchas que las piernas", 
+               "Inclina menos tu espalda",  
+               "Alinea hombros con munecas",)
 
     index = 0
     biggest = 0
 
-    output[0] *= 0.75
-    output[2] *= 10
-    output[3] *= 0.6
+    # output[0] *= 0.75
+    # output[2] *= 10
+    # output[3] *= 0.6
+    
     
     
     for i, r  in enumerate(output):  
@@ -92,7 +93,6 @@ def label_final_results(image, output, threshold=0.5):
             biggest = r
             index = i
 
-    mensaje = "Todo bien"
 
     if biggest > threshold:
         mensaje = mensajes[index]
@@ -101,6 +101,7 @@ def label_final_results(image, output, threshold=0.5):
         #     print("hombros-muñecas", output[index])
         #     time.sleep(1)
     else:
+        mensaje = "Todo bien"
         color = (42, 210, 48)
 
 
@@ -133,7 +134,7 @@ def get_frame(cap, pose, mp_pose):
             mp_pose.POSE_CONNECTIONS,
         )
 
-    image = cv2.resize(image, (720, 480))
+    image = cv2.resize(image, (1920, 1080))
     
     return image, results
 
@@ -148,9 +149,33 @@ def get_points(results):
                 landmark_list[lm.value].x,
                 landmark_list[lm.value].y,
                 landmark_list[lm.value].z
-            ]) if landmark_list[lm.value].visibility >= 0.5 else None  # <-- sin np.array(None)
+            ]) 
         )
         for lm in mp.solutions.pose.PoseLandmark
     }
 
     return points
+
+
+def get_image(image, pose, mp_pose):
+
+
+    # Convertir a RGB y procesar con MediaPipe
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    image.flags.writeable = False
+    results = pose.process(image)
+    
+    image.flags.writeable = True
+    image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+    
+    # Dibujar landmarks sobre el frame si se detectan
+    if results.pose_landmarks:
+        mp_drawing.draw_landmarks(
+            image,
+            results.pose_landmarks,
+            mp_pose.POSE_CONNECTIONS,
+        )
+
+    image = cv2.resize(image, (720, 480))
+    
+    return image, results

@@ -5,7 +5,7 @@ import os
 
 # Configuración
 VIDEO_FOLDER = "./videos_recortados"
-OUTPUT_FILE = "./input_vectors_2.jsonl"
+OUTPUT_FILE = "./input_vectors_v3.jsonl"
 
 
 mp_pose = mp.solutions.pose
@@ -48,7 +48,7 @@ with open(OUTPUT_FILE, "w") as fout:
                             round(landmarks[lm.value].x, 5),
                             round(landmarks[lm.value].y, 5),
                             round(landmarks[lm.value].z, 5)
-                        ] if landmarks[lm.value].visibility >= 0.5 else None
+                        ] 
                     )
                     for lm in landmark_enum
                 }

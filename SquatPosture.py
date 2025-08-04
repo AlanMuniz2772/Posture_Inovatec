@@ -231,21 +231,23 @@ def calcular_parametros_desde_resultados(points):
 
 
 def calcular_deadlift(points):
-    if not points or all(p is None for p in points.values()):
-        return None
     
-    return {
+    data = {
         "pies_a_la_anchura_de_hombros": pies_a_la_anchura_de_hombros(points),
         "agarre_amplio": agarre_amplio_manos_fuera_de_las_piernas(points),
         "espalda_neutral": espalda_en_posicion_neutral(points),
-        "hombros_sobre_barra": hombros_sobre_la_barra(points)
+        "hombros_sobre_barra": hombros_sobre_la_barra(points),
     }
+
+    data["all_correct"] = all(data.values())
+
+    return data
     
     
 
 
 
-def pies_a_la_anchura_de_hombros(points, tolerancia=0.3):
+def pies_a_la_anchura_de_hombros(points, tolerancia_dentro=0.5, tolerancia_fuera=0.1):
     """
     Evalúa si los tobillos están separados aproximadamente al mismo ancho que los hombros.
 
@@ -256,24 +258,23 @@ def pies_a_la_anchura_de_hombros(points, tolerancia=0.3):
     Retorna:
     - True si la distancia de los tobillos es similar a la de los hombros
     - False si no
-    - None si falta algún punto
     """
-    claves = ['LEFT_SHOULDER', 'RIGHT_SHOULDER', 'LEFT_ANKLE', 'RIGHT_ANKLE']
-    if any(points.get(k) is None for k in claves):
-        return None  # No se puede evaluar
-
-    
     def distancia_x(p1, p2):
         return abs(p1[0] - p2[0])
 
     ancho_hombros = distancia_x(points['LEFT_SHOULDER'], points['RIGHT_SHOULDER'])
     ancho_pies = distancia_x(points['LEFT_ANKLE'], points['RIGHT_ANKLE'])
 
-    margen = ancho_hombros * tolerancia
-    return (ancho_hombros - margen) <= ancho_pies <= (ancho_hombros + margen)
+    margen_dentro = ancho_hombros * tolerancia_dentro
+    margen_fuera = ancho_hombros * tolerancia_fuera
+
+    if ancho_pies <= (ancho_hombros - margen_fuera) and ancho_pies >= (ancho_hombros - margen_dentro):
+        return True
+
+    return False
 
 
-def agarre_amplio_manos_fuera_de_las_piernas(points, margen_extra=0.02):
+def agarre_amplio_manos_fuera_de_las_piernas(points, margen_extra=0.3):
     """
     Evalúa si el agarre es amplio, es decir, si las manos (muñecas) están fuera del ancho de las rodillas.
     
@@ -284,11 +285,8 @@ def agarre_amplio_manos_fuera_de_las_piernas(points, margen_extra=0.02):
     Retorna:
     - True si el agarre es amplio
     - False si no lo es
-    - None si faltan puntos clave
     """
-    claves = ['LEFT_WRIST', 'RIGHT_WRIST', 'LEFT_KNEE', 'RIGHT_KNEE']
-    if any(points.get(k) is None for k in claves):
-        return None
+
 
     def distancia_x(p1, p2):
         return abs(p1[0] - p2[0])
@@ -296,12 +294,14 @@ def agarre_amplio_manos_fuera_de_las_piernas(points, margen_extra=0.02):
     ancho_rodillas = distancia_x(points['LEFT_KNEE'], points['RIGHT_KNEE'])
     ancho_manos = distancia_x(points['LEFT_WRIST'], points['RIGHT_WRIST'])
 
-    return ancho_manos >= (ancho_rodillas + margen_extra)
+    margen = ancho_rodillas * margen_extra
+
+    return ancho_manos > (ancho_rodillas+margen)
 
 
 
 
-def espalda_en_posicion_neutral(points, tolerancia_grados=50):
+def espalda_en_posicion_neutral(points, tolerancia_grados=45):
     """
     Evalúa si la espalda está en una posición neutral observando la inclinación del tronco
     desde el hombro a la cadera en ambos lados del cuerpo.
@@ -336,31 +336,22 @@ def espalda_en_posicion_neutral(points, tolerancia_grados=50):
 
 
 
-def hombros_sobre_la_barra(points, tolerancia_x=0.05):
-    """
-    Evalúa si los hombros están aproximadamente sobre las muñecas (la barra) en vista lateral.
+def hombros_sobre_la_barra(points, tolerancia_dentro=0, tolerancia_fuera=0.6):
     
-    Parámetros:
-    - points: dict con np.array o None
-    - tolerancia_x: rango aceptable de diferencia horizontal (X)
+    def distancia_x(p1, p2):
+        return abs(p1[0] - p2[0])
 
-    Retorna:
-    - True si ambos hombros están sobre la barra
-    - False si no lo están
-    - None si faltan puntos clave
-    """
-    claves = ['LEFT_SHOULDER', 'RIGHT_SHOULDER', 'LEFT_WRIST', 'RIGHT_WRIST']
-    if any(points.get(k) is None for k in claves):
-        return None
+    ancho_hombros = distancia_x(points['LEFT_SHOULDER'], points['RIGHT_SHOULDER'])
+    ancho_muñecas = distancia_x(points['LEFT_WRIST'], points['RIGHT_WRIST'])
 
-    def alineacion_horizontal(hombro, muñeca):
-        diferencia = abs(hombro[0] - muñeca[0])
-        return diferencia <= tolerancia_x
+    margen_dentro = ancho_hombros * tolerancia_dentro
+    margen_fuera = ancho_hombros * tolerancia_fuera
 
-    izq = alineacion_horizontal(points['LEFT_SHOULDER'], points['LEFT_WRIST'])
-    der = alineacion_horizontal(points['RIGHT_SHOULDER'], points['RIGHT_WRIST'])
+    if ancho_muñecas <= (ancho_hombros + margen_fuera) and ancho_muñecas >= (ancho_hombros - margen_dentro):
+        return True
 
-    return izq and der
+    return False
+
 
 
 def auto_label(params):
@@ -412,13 +403,32 @@ def obtener_vector_para_modelo(results, threshold=0.5):
         idx = landmark_enum[nombre].value
         punto = landmark_list[idx]
 
-        if punto.visibility < threshold:
-            # vector.extend([-1.0, -1.0, -1.0])
-            return None  # Landmark no visible
-        else:
-            vector.extend([punto.x, punto.y, punto.z])
+        # if punto.visibility < threshold:
+        #     # vector.extend([-1.0, -1.0, -1.0])
+        #     return None  # Landmark no visible
+        # else:
+        #     vector.extend([punto.x, punto.y, punto.z])
+        vector.extend([punto.x, punto.y, punto.z])
 
     return np.array(vector)
+
+
+def label_errors(image, params):
+    
+    mensaje = "Todo bien"
+
+    if params["all_correct"] == False:
+        mensaje = "Algo mal"
+        color = (13, 13, 205)
+ 
+    else:
+        color = (42, 210, 48)
+
+    image_height, _, _ = image.shape
+    cv2.rectangle(image, (0, 0), (image_height, 74), color, -1)
+    cv2.putText(image, mensaje, (10, 43), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+
+    return image, mensaje
 
 
 def show_prediction(cap, pose, model):
@@ -436,9 +446,12 @@ def show_prediction(cap, pose, model):
 
         if results and results.pose_landmarks:
             landmarks = obtener_vector_para_modelo(results)
+            # landmarks = utils.get_points(results)
             if landmarks is not None:
-                output = model.predict(np.array([landmarks]))[0]
+                output = model.predict(np.array([landmarks]), verbose=0)[0]
+                # params = calcular_deadlift(landmarks)
                 image, nuevo_mensaje = utils.label_final_results(image, output)
+                # image, nuevo_mensaje = label_errors(image, params)
             else:
                 nuevo_mensaje = "No se detectaron landmarks suficientes"
 
@@ -450,6 +463,28 @@ def show_prediction(cap, pose, model):
 
         if cv2.waitKey(30) & 0xFF == ord('q'):
             break
+
+def show_prediction_image(image, pose, model):
+    mensaje = None
+
+    image, results = utils.get_image(image, pose, mp_pose)
+    nuevo_mensaje = None
+
+    if results and results.pose_landmarks:
+        landmarks = obtener_vector_para_modelo(results)
+
+        if landmarks is not None:
+            output = model.predict(np.array([landmarks]), verbose=0)[0]
+            image, nuevo_mensaje = utils.label_final_results(image, output)
+        else:
+            nuevo_mensaje = "No se detectaron landmarks suficientes"
+
+        if nuevo_mensaje is not None:
+            hablar_async(nuevo_mensaje)
+
+    cv2.imshow("Resultado", image)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
 
 # if __name__ == "__main__":
 #     print(radian_to_degrees(3))

@@ -24,7 +24,7 @@ VIDEO_DIR = "./data_processing/videos_recortados"
 video_files = [f for f in os.listdir(VIDEO_DIR) if f.endswith(".mp4")]
 
 # Cargar modelo multietiqueta entrenado
-model = tf.keras.models.load_model("modelo2.keras")
+model = tf.keras.models.load_model("Model_v3.keras")
 
 pose = mp_pose.Pose(min_detection_confidence=0.5,
                       min_tracking_confidence=0.5)
